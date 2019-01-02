@@ -16,10 +16,10 @@ import org.apache.hadoop.mapreduce.lib.input.KeyValueTextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class DGIM {
-  public static int N = 50; // window size
-  // ceil(log N)  * r
-  public static int n = 6; // size of power of max bucket
-  public static int r = 1; // max number of buckets for one size
+  // N: window size
+  // n: size of power of max bucket
+  // r: max number of buckets for one size
+  public static int N, n, r;
 
   public static class DGIMReducer extends Reducer<Text, Text, IntWritable, IntWritable> {
     public void reduce(Text key, Iterable<Text> values, Context context)
@@ -51,25 +51,34 @@ public class DGIM {
       for (Text value : values) {
         String[] data_stream = value.toString().split(" ");
         for (i = 0; i < data_stream.length; ++i, ++time_counter) {
+          // only count on "1"
           if (data_stream[i].equals("0")) continue;
+
+          // find the highest index to be merged
           int be_merged = 0;
           while (bucket_counter[be_merged] >= DGIM.r) ++be_merged;
+
+          // create space for new bucket
           for (j = be_merged; j >= 0; --j) {
             for (k = DGIM.r; k >= 1; --k) {
               buckets[j][k] = buckets[j][k - 1];
             }
           }
+          // create new bucket
           buckets[0][0] = time_counter;
-
+          // merge buckets
           for (j = 1; j <= be_merged; ++j) buckets[j][0] = buckets[j - 1][DGIM.r - 1];
+          // clear the merged buckets
           for (j = be_merged; j >= 1; --j) {
             buckets[j - 1][DGIM.r] = -1;
             buckets[j - 1][DGIM.r - 1] = -1;
           }
 
+          // update new bucket count
           bucket_counter[be_merged]++;
           for (j = 0; j < be_merged; ++j) bucket_counter[j]--;
 
+          // discard outdated buckets
           for (j = DGIM.n; j >= 0; --j) {
             for (k = DGIM.r; k >= 0; --k) {
               if (buckets[j][k] == -1) continue;
@@ -103,6 +112,8 @@ public class DGIM {
     // Identity Mapper
     job.setReducerClass(DGIMReducer.class);
 
+    job.setMapOutputKeyClass(Text.class);
+    job.setMapOutputValueClass(Text.class);
     job.setOutputKeyClass(IntWritable.class);
     job.setOutputValueClass(IntWritable.class);
 
@@ -129,7 +140,10 @@ public class DGIM {
 
   public static void main(String[] args) throws Exception {
     final String inputPath = args[0] + "/", outputPath = args[1] + "/";
-    final int iters = 10;
+    final int iters = Integer.parseInt(args[2]);
+    DGIM.N = Integer.parseInt(args[3]);
+    DGIM.n = (int) Math.ceil(Math.log10(DGIM.N));
+    DGIM.r = 1;
 
     String bucket = "init_bucket";
     for (int i = 0; i < iters; ++i) {
